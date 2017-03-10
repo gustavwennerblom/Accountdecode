@@ -1,12 +1,19 @@
+import csv
 import re
-import sys
 
+counter = 0
+XMLerr = 0
+Inx_err = 0
+UBL_err = 0
 
-#Interprets a line and returns a dict of results
+# Interprets a line and returns a dict of results
 def interpret(line):
+    global Inx_err
+    global result
     # throw away xml junk
     if re.findall("<.*>", line):
         raise ValueError("XML caught")
+        return None
 
     content_string = (re.findall("\s.*", line))[0].lstrip()
     result={
@@ -20,64 +27,67 @@ def interpret(line):
         "City": None,
         "ZipCode": None
     }
-    #Find location of Organization Number
+    # Find the coordinates of the value field
     for key in result:
-        keyindex= re.findall("{}.[A-Z][^A-z]*".format(key), line)[0].split(":")
-        #except IndexError as e:
-        #    print("Index Error caught for key={0}, when parsing: {1}".format(key, line))
-        #    print(repr(e))
-        #    #input("WAITING")
+        try:
+            keyindex= re.findall("{}.[A-Z][^A-z]*".format(key), line)[0].split(":")    # Finds the keys and splits on the colons
+        # The except block catches absence of keys and trigges next iteration of the loop
+        except IndexError:
+            Inx_err += 1
+            continue
 
-        #try:
-        if keyindex[-2]=="-1":
+        if keyindex[-2]=="-1":        # "-1" being the notation for no value for the field name. Triggers next iteration.
             continue
         else:
-                #print(content_string)
-                #print("Start pos: %s" % str(int(orgno_list[2])))
-                #print("End pos: %s" % str(int(orgno_list[2]) + int(orgno_list[3])))
             result[key]=content_string[int(keyindex[2]):int(keyindex[2])+int(keyindex[3])]
-        #except UnboundLocalError as e:
-        #    print("Error parsing: {0} for key={1}".format(line, key))
-        #    print(repr(e))
-        #    #input("WAITING")
-
     return result
 
-#processes the interpreted results in a dict
-def process(line_dict, format="stdout"):
+# Processes the interpreted results (dict) and outputs to stdout or to a new csv file (default)
+def process(line_dict, keyorder, format="csv"):
+    global result
     assert isinstance(line_dict, dict)
     if format=="stdout":
         for key, value in line_dict.items():
             print("{0}: {1}".format(key, value))
         print("---")
 
+    if format=="csv":
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+        with open("UserAccounts-{}.csv".format(timestamp), "a") as f:
+            writer = csv.DictWriter(f, keyorder)
+            writer.writerow(line_dict)
+            f.close()
 
 if __name__ == "__main__":
-    f = open("business_users_2.csv", "r", encoding="latin-1")
-    counter=0
-    XMLerr=0
-    Inx_UB_err=0
+    f = open("business_users_2.csv", "r", encoding="utf_8")
+    keyorder = ("FirstName",
+                "LastName",
+                "Email",
+                "OrganizationName",
+                "OrganizationNumber",
+                "Department",
+                "Address",
+                "City",
+                "ZipCode")
     try:
-        #read away first line
+        # read away first line in source file
         f.readline()
+
         for line in f:
             try:
                 line_dict = interpret(line)
             except ValueError as error:
                 XMLerr += 1
-                print(repr(error))
-            except IndexError as e:
-                #print("Index Error caught for key={0}, when parsing: {1}".format(key, line))
-                Inx_UB_err +=1
-            except UnboundLocalError as e:
-                Inx_UB_err += 1
-            process(line_dict, format="stdout")
+                #print(repr(error))
+                continue
+            process(line_dict, keyorder, format="csv")
             counter +=1
     except FileNotFoundError as error:
         print(repr(error))
     f.close()
 
-    print("Finished with {0} successful interprets, {1} XML lines filtered, {2} IndexErrors".format(counter, XMLerr, Inx_UB_err))
+    print("Finished with {0} successful interprets, \n\t {1} XML lines filtered, \n\t {2} IndexErrors (i.e. missing dict keys) \n\t {3} UBL errors".format(counter, XMLerr, Inx_err, UBL_err))
     #print(line)
 
 
